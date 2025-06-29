@@ -1,66 +1,55 @@
 import os
+import re
+
+
+def windows_natural_sort_key(filename):
+    """
+    Windows自然排序键（带前导零的数字排在相同值的数字之前）
+    示例排序结果：01.jpg, 1.jpg, 02.jpg, 2.jpg, 10.jpg
+    """
+
+    def split_parts(text):
+        parts = re.split('([0-9]+)', text)
+        for i in range(len(parts)):
+            if parts[i].isdigit():
+                # 带前导零的数字排序时标记为更小
+                parts[i] = (int(parts[i]), -len(parts[i]))  # (数值, 前导零长度负值)
+        return parts
+
+    return [part for part in split_parts(filename)]
 
 
 def rename_images_from_txt(image_folder, txt_file):
-    """
-    批量将图片文件名更改为txt文件中指定的名称（严格保持Windows资源管理器显示顺序）
-
-    参数:
-        image_folder: 存放图片的文件夹路径
-        txt_file: 包含新文件名的文本文件路径
-    """
-    # 读取txt文件中的新文件名
+    # 读取新名称
     with open(txt_file, 'r', encoding='utf-8') as f:
         new_names = [line.strip() for line in f if line.strip()]
 
-    # 获取图片文件列表（按Windows资源管理器顺序）
-    image_files = []
-    for f in os.listdir(image_folder):
-        if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
-            image_files.append(f)
+    # 获取并排序图片文件
+    image_files = [f for f in os.listdir(image_folder)
+                   if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))]
+    image_files.sort(key=windows_natural_sort_key)
 
-    # 使用Windows自然排序（如1,2,10而不是1,10,2）
-    def windows_sort_key(filename):
-        import re
-        return [int(text) if text.isdigit() else text.lower()
-                for text in re.split('([0-9]+)', filename)]
-
-    image_files.sort(key=windows_sort_key)
-
-    # 检查数量是否匹配
+    # 检查数量匹配
     if len(image_files) != len(new_names):
-        print(f"错误: 图片数量({len(image_files)})与名称数量({len(new_names)})不匹配！")
-        print("请确保：")
-        print("1. 图片和名称数量相同")
-        print("2. 文本文件中没有多余空行")
+        print(f"错误: 图片数量({len(image_files)}) ≠ 名称数量({len(new_names)})")
         return
 
-    # 批量重命名
-    for i, (old_name, new_name) in enumerate(zip(image_files, new_names)):
+    # 执行重命名
+    for old_name, new_name in zip(image_files, new_names):
         old_path = os.path.join(image_folder, old_name)
-        ext = os.path.splitext(old_name)[1]  # 保留原扩展名
-
-        # 处理重复文件名
-        counter = 1
-        new_base = new_name
-        while True:
-            new_path = os.path.join(image_folder, f"{new_base}{ext}")
-            if not os.path.exists(new_path):
-                break
-            new_base = f"{new_name}_{counter}"
-            counter += 1
+        ext = os.path.splitext(old_name)[1]
+        new_path = os.path.join(image_folder, f"{new_name}{ext}")
 
         try:
             os.rename(old_path, new_path)
-            print(f"成功: {old_name} -> {os.path.basename(new_path)}")
+            print(f"成功: {old_name} → {new_name}{ext}")
         except Exception as e:
-            print(f"失败: {old_name} | 错误: {str(e)}")
+            print(f"失败: {old_name} | 错误: {e}")
 
 
 # 使用示例
 if __name__ == "__main__":
-    # 替换为你的实际路径（建议使用原始字符串r''防止转义问题）
-    image_folder = r"D:\Games\pythonProject3\实训\day2\pictures"
-    txt_file = r"names.txt"
-
-    rename_images_from_txt(image_folder, txt_file)
+    rename_images_from_txt(
+        image_folder=r"D:\Games\pythonProject3\实训\day2\pictures",
+        txt_file=r"names.txt"
+    )
