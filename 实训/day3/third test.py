@@ -1,121 +1,158 @@
-import requests
-from bs4 import BeautifulSoup
-import re
 import time
 import random
-from urllib.parse import quote
+import urllib.parse
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
-headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-    "Accept-Language": "zh-CN,zh;q=0.9",
-    "Connection": "keep-alive",
-    "Referer": "https://c61.oversea.cnki.net"
-}
-
-# 目标文章列表
-titles = [
-    "基于视觉信息的煤矸识别分割定位方法",
-    "基于YOLO11的无人机航拍图像小目标检测算法",
-    "AA-GM-YOLO：基于改进YOLO的机加工切屑监测方法",
-    "轻量化输电线路缺陷检测方法",
-    "基于关键点检测的服装尺寸测量方法",
-    "基于YOLO的小目标检测算法研究"
+# 文献列表
+papers = [
+    "Automatic crater detection and age estimation for mare regions on the lunar surface",
+    "The origin of planetary impactors in the inner solar system",
+    "Deep learning based systems for crater detection: A review",
+    "A preliminary study of classification method on lunar topography and landforms",
+    "The CosmoQuest Moon mappers community science project: The effect of incidence angle on the Lunar surface crater distribution",
+    "Fast r-cnn",
+    "You only look once: Unified, real-time object detection",
+    "Attention is all you need",
+    "End-to-end object detection with transformers"
 ]
 
 
-def get_dynamic_params(session, url):
-    """获取ASP.NET动态参数（__VIEWSTATE等）"""
+def setup_driver():
+    """配置并启动Chrome浏览器"""
+    chrome_options = Options()
+    chrome_options.add_argument('--headless')  # 无界面模式
+    chrome_options.add_argument('--disable-gpu')
+    chrome_options.add_argument('--no-sandbox')
+    chrome_options.add_argument('--disable-dev-shm-usage')
+
+    # 反自动化设置
+    chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+    chrome_options.add_experimental_option('excludeSwitches', ['enable-automation'])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
+
+    # 设置真实用户代理
+    user_agents = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.4 Safari/605.1.15",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+    ]
+    chrome_options.add_argument(f'user-agent={random.choice(user_agents)}')
+
+    service = Service()
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+
+    # 隐藏自动化特征
+    driver.execute_script(
+        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+    )
+
+    return driver
+
+
+def human_like_delay(min=0.5, max=3.0):
+    """模拟人类操作延迟"""
+    time.sleep(random.uniform(min, max))
+
+
+def get_bibtex(driver, paper_title):
+    """获取并返回文献的BibTeX引用格式"""
     try:
-        resp = session.get(url, headers=headers, timeout=15)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, 'html.parser')
-        viewstate = soup.find("input", {"id": "__VIEWSTATE"}).get("value", "")
-        event_validation = soup.find("input", {"id": "__EVENTVALIDATION"}).get("value", "")
-        return viewstate, event_validation
+        # 构建搜索URL
+        encoded_title = urllib.parse.quote_plus(paper_title)
+        url = f"https://scholar.google.com/scholar?hl=en&as_sdt=0%2C5&q={encoded_title}"
+
+        # 访问搜索页面
+        driver.get(url)
+        human_like_delay(1.0, 2.5)
+
+        # 等待结果加载
+        WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "div.gs_r.gs_or.gs_scl"))
+        )
+
+        # 模拟人类滚动
+        for _ in range(2):
+            driver.execute_script("window.scrollBy(0, window.innerHeight * 0.5);")
+            human_like_delay(0.7, 1.5)
+
+        # 获取第一个结果
+        first_result = driver.find_element(By.CSS_SELECTOR, "div.gs_r.gs_or.gs_scl")
+
+        # 显示更多的引用选项
+        cite_button = first_result.find_element(By.CSS_SELECTOR, "a.gs_or_cit")
+        driver.execute_script("arguments[0].click();", cite_button)
+        human_like_delay(1.0, 2.0)
+
+        # 等待引用弹出框出现
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "div.gs_citr"))
+        )
+
+        # 切换到BibTeX格式
+        bibtex_link = driver.find_element(By.XPATH, "//a[contains(., 'BibTeX')]")
+        bibtex_url = bibtex_link.get_attribute('href')
+
+        # 直接访问BibTeX链接
+        driver.get(bibtex_url)
+        human_like_delay(2.0, 3.0)
+
+        # 获取并返回BibTeX内容
+        pre_element = driver.find_element(By.TAG_NAME, 'pre')
+        bibtex_content = pre_element.text
+        return bibtex_content
+
+    except (TimeoutException, NoSuchElementException):
+        print(f"未找到文献: {paper_title[:50]}...")
+        return f"@article{{ERROR: 未能找到文献引用 - {paper_title[:50]}...}}\n"
     except Exception as e:
-        print(f"获取动态参数失败: {e}")
-        return "", ""
+        print(f"处理文献时出错: {paper_title[:50]}..., 原因: {str(e)[:100]}")
+        return f"@article{{ERROR: {str(e)[:100].replace('@', '')}}}\n"
 
 
-def search_cnki(title):
-    """精确搜索知网并提取第一篇结果的元数据"""
-    session = requests.Session()
-    search_url = "https://c61.oversea.cnki.net/kns/brief/brief.aspx"
-    base_url = "https://c61.oversea.cnki.net"
+def main():
+    driver = setup_driver()
+    output = "以下是您文献的BibTeX引用格式：\n\n"
 
     try:
-        # 第一步：获取初始动态参数
-        viewstate, event_validation = get_dynamic_params(session, search_url)
+        # 首先访问主页建立会话
+        driver.get("https://scholar.google.com")
+        human_like_delay(2.0, 4.0)
 
-        # 构造搜索表单数据
-        form_data = {
-            "__VIEWSTATE": viewstate,
-            "__EVENTVALIDATION": event_validation,
-            "hidkey": "",
-            "txt_1_sel": "SU$%=|",  # 按标题搜索
-            "txt_1_value1": title,
-            "btn_search": "检索"
-        }
+        for i, paper in enumerate(papers, 1):
+            print(f"正在处理第 {i}/{len(papers)} 篇文献: {paper[:50]}...")
 
-        # 随机延迟避免封禁
-        time.sleep(random.uniform(3, 6))
+            # 随机延迟避免封禁
+            human_like_delay(random.uniform(3.0, 7.0))
 
-        # 提交搜索请求
-        response = session.post(search_url, data=form_data, headers=headers, timeout=20)
-        response.raise_for_status()
+            # 获取文献引用
+            bibtex = get_bibtex(driver, paper)
 
-        # 解析搜索结果页
-        soup = BeautifulSoup(response.text, 'html.parser')
-        first_result = soup.select_one("a.fz14")
-        if not first_result:
-            print(f"未找到文章: {title}")
-            return None
+            # 添加到输出
+            output += f"%%% 文献 {i} - {paper[:60]}... %%%\n"
+            output += bibtex + "\n\n"
 
-        # 获取详情页链接
-        detail_path = first_result['href']
-        detail_url = base_url + detail_path if detail_path.startswith('/') else base_url + '/' + detail_path
+            # 返回主页
+            driver.get("https://scholar.google.com")
+            human_like_delay(1.5, 2.5)
 
-        # 访问详情页
-        time.sleep(random.uniform(4, 8))
-        detail_resp = session.get(detail_url, headers=headers, timeout=25)
-        detail_resp.raise_for_status()
-        detail_soup = BeautifulSoup(detail_resp.text, 'html.parser')
-
-        # 提取元数据（根据海外版页面结构调整选择器）
-        title_elem = detail_soup.find("h1", class_="title")
-        authors = [a.text.strip() for a in detail_soup.select(".author a, .author span") if a.text.strip()]
-        abstract_elem = detail_soup.find("span", class_="abstract-text")
-        source_elem = detail_soup.find("a", href=re.compile(r'knavi/journal/'))
-
-        return {
-            "title": title_elem.text.strip() if title_elem else title,
-            "authors": authors if authors else ["未知"],
-            "abstract": abstract_elem.text.strip() if abstract_elem else "无摘要",
-            "source": source_elem.text.strip() if source_elem else "无来源",
-            "url": detail_url
-        }
+        # 显示最终结果
+        print("\n" + "=" * 70)
+        print(output)
+        print("=" * 70)
+        print("所有文献的BibTeX格式已成功生成！")
 
     except Exception as e:
-        print(f"爬取失败 ({title}): {str(e)}")
-        return None
+        print(f"严重错误: {str(e)}")
+    finally:
+        driver.quit()
+        print("浏览器已关闭")
 
 
-# 执行爬取
-results = []
-for title in titles:
-    print(f"正在爬取: 《{title}》")
-    data = search_cnki(title)
-    if data:
-        results.append(data)
-    time.sleep(random.uniform(5, 10))  # 关键延迟避免IP封禁
-
-# 输出结果
-for res in results:
-    print("\n" + "=" * 80)
-    print(f"标题: {res['title']}")
-    print(f"作者: {', '.join(res['authors'])}")
-    print(f"摘要: {res['abstract'][:250]}...")
-    print(f"来源: {res['source']}")
-    print(f"链接: {res['url']}")
-    print("=" * 80)
+if __name__ == "__main__":
+    main()
